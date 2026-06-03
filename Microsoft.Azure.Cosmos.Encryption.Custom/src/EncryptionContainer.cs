@@ -10,11 +10,16 @@ namespace Microsoft.Azure.Cosmos.Encryption.Custom
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
+    using Microsoft.IO;
     using Newtonsoft.Json.Linq;
 
     internal sealed class EncryptionContainer : Container
     {
         private readonly Container container;
+
+#if NET8_0_OR_GREATER && ENCRYPTION_CUSTOM_PREVIEW
+        private readonly StreamManager streamManager = new MemoryStreamManager();
+#endif
 
         public CosmosSerializer CosmosSerializer { get; }
 
@@ -718,7 +723,20 @@ namespace Microsoft.Azure.Cosmos.Encryption.Custom
             string continuationToken = null,
             QueryRequestOptions requestOptions = null)
         {
-            return new EncryptionFeedIterator(
+#if NET8_0_OR_GREATER
+            if ((requestOptions as EncryptionQueryRequestOptions)?.EncryptionOptions?.JsonProcessor != JsonProcessor.Newtonsoft)
+            {
+                return EncryptionFeedIterator.CreateStreamIterator(
+                    this.container.GetItemQueryStreamIterator(
+                        queryDefinition,
+                        continuationToken,
+                        requestOptions),
+                    this.Encryptor,
+                    this.CosmosSerializer,
+                    this.streamManager);
+            }
+#endif
+            return EncryptionFeedIterator.CreateLegacyIterator(
                 this.container.GetItemQueryStreamIterator(
                     queryDefinition,
                     continuationToken,
@@ -732,7 +750,20 @@ namespace Microsoft.Azure.Cosmos.Encryption.Custom
             string continuationToken = null,
             QueryRequestOptions requestOptions = null)
         {
-            return new EncryptionFeedIterator(
+#if NET8_0_OR_GREATER
+            if ((requestOptions as EncryptionQueryRequestOptions)?.EncryptionOptions?.JsonProcessor != JsonProcessor.Newtonsoft)
+            {
+                return EncryptionFeedIterator.CreateStreamIterator(
+                    this.container.GetItemQueryStreamIterator(
+                        queryText,
+                        continuationToken,
+                        requestOptions),
+                    this.Encryptor,
+                    this.CosmosSerializer,
+                    this.streamManager);
+            }
+#endif
+            return EncryptionFeedIterator.CreateLegacyIterator(
                 this.container.GetItemQueryStreamIterator(
                     queryText,
                     continuationToken,
@@ -764,7 +795,21 @@ namespace Microsoft.Azure.Cosmos.Encryption.Custom
             string continuationToken,
             QueryRequestOptions requestOptions = null)
         {
-            return new EncryptionFeedIterator(
+#if NET8_0_OR_GREATER
+            if ((requestOptions as EncryptionQueryRequestOptions)?.EncryptionOptions?.JsonProcessor != JsonProcessor.Newtonsoft)
+            {
+                return EncryptionFeedIterator.CreateStreamIterator(
+                    this.container.GetItemQueryStreamIterator(
+                        feedRange,
+                        queryDefinition,
+                        continuationToken,
+                        requestOptions),
+                    this.Encryptor,
+                    this.CosmosSerializer,
+                    this.streamManager);
+            }
+#endif
+            return EncryptionFeedIterator.CreateLegacyIterator(
                 this.container.GetItemQueryStreamIterator(
                     feedRange,
                     queryDefinition,
@@ -801,7 +846,21 @@ namespace Microsoft.Azure.Cosmos.Encryption.Custom
             ChangeFeedMode changeFeedMode,
             ChangeFeedRequestOptions changeFeedRequestOptions = null)
         {
-            return new EncryptionFeedIterator(
+#if NET8_0_OR_GREATER
+            if ((changeFeedRequestOptions as EncryptionChangeFeedRequestOptions)?.EncryptionOptions?.JsonProcessor != JsonProcessor.Newtonsoft)
+            {
+                return EncryptionFeedIterator.CreateStreamIterator(
+                    this.container.GetChangeFeedStreamIterator(
+                        changeFeedStartFrom,
+                        changeFeedMode,
+                        changeFeedRequestOptions),
+                    this.Encryptor,
+                    this.CosmosSerializer,
+                    this.streamManager);
+            }
+#endif
+
+            return EncryptionFeedIterator.CreateLegacyIterator(
                 this.container.GetChangeFeedStreamIterator(
                     changeFeedStartFrom,
                     changeFeedMode,
@@ -917,6 +976,7 @@ namespace Microsoft.Azure.Cosmos.Encryption.Custom
                     Stream decryptedChanges = await EncryptionProcessor.DeserializeAndDecryptResponseAsync(
                         changes,
                         this.Encryptor,
+                        JsonProcessor.Newtonsoft,
                         cancellationToken);
 
                     // Call the original passed in delegate
@@ -939,6 +999,7 @@ namespace Microsoft.Azure.Cosmos.Encryption.Custom
                     Stream decryptedChanges = await EncryptionProcessor.DeserializeAndDecryptResponseAsync(
                         changes,
                         this.Encryptor,
+                        JsonProcessor.Newtonsoft,
                         cancellationToken);
 
                     // Call the original passed in delegate
@@ -1036,6 +1097,7 @@ namespace Microsoft.Azure.Cosmos.Encryption.Custom
             Stream decryptedContent = await EncryptionProcessor.DeserializeAndDecryptResponseAsync(
                 responseMessage.Content,
                 this.Encryptor,
+                (readManyRequestOptions as EncryptionReadManyRequestOptions)?.EncryptionOptions.JsonProcessor ?? JsonProcessor.Newtonsoft,
                 cancellationToken);
 
             return new DecryptedResponseMessage(responseMessage, decryptedContent);
